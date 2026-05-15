@@ -1,0 +1,46 @@
+# Entornos virtuales
+venv/
+venv312/
+venv_lite/
+__pycache__/
+*.pyc
+
+# Variables de entorno (¡importante! No subir tu API key)
+.env
+
+# Archivos de Python
+*.pyc
+*.pyo
+*.pyd
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos temporales
+*.log
+*.tmp
+.DS_Store
+
+# Documentos subidos (opcional)
+uploads/
+temp/
+
+# Cachés
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Archivos de chromadb
+pdf_base/
+*.sqlite3
+*.bin
+
+# Submodule del space
+michatbotRGB/
+
+# Archivos temporales
+*.log
+*.tmp

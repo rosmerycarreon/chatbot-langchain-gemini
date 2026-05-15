@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chatbot RAG con LangChain y Gemini</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 60%, #0f172a 100%); color: #e2e8f0; }
+    .glass { background: rgba(15, 23, 42, 0.78); backdrop-filter: blur(18px); }
+    .bubble-user { background: #38bdf8; color: #0f172a; }
+    .bubble-assistant { background: #334155; color: #e2e8f0; }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-7xl space-y-6">
+    <header class="text-center mb-2">
+      <h1 class="text-3xl md:text-5xl font-extrabold text-white tracking-tight">Chatbot RAG con LangChain y Gemini</h1>
+      <p class="mt-2 text-slate-300">Login, carga de documentos, búsqueda semántica y chat responsivo en un solo lugar.</p>
+    </header>
+
+    <section id="login-screen" class="glass rounded-3xl p-8 shadow-2xl max-w-2xl mx-auto">
+      <h2 class="text-2xl font-semibold text-white mb-5">Accede a tu espacio</h2>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-sm text-slate-300 mb-1">Usuario</label>
+          <input id="username" type="text" required class="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white focus:border-cyan-400 outline-none" placeholder="demo" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-300 mb-1">Contraseña</label>
+          <input id="password" type="password" required class="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-white focus:border-cyan-400 outline-none" placeholder="demo123" />
+        </div>
+        <button type="submit" class="w-full rounded-2xl bg-gradient-to-r from-cyan-400 to-sky-600 py-3 font-semibold text-slate-950">Iniciar sesión</button>
+        <p class="text-sm text-slate-400">Usuario de prueba: <strong>demo</strong> / Contraseña: <strong>demo123</strong></p>
+      </form>
+    </section>
+
+    <section id="app-screen" class="hidden space-y-5">
+      <div class="flex flex-col md:flex-row gap-4">
+        <div class="glass rounded-3xl p-6 shadow-2xl w-full md:w-3/5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-2xl font-semibold text-white">Conversa con tu asistente</h2>
+              <p class="text-slate-400">El modelo responde con evidencia semántica de tus documentos.</p>
+            </div>
+            <button id="logout-button" class="rounded-full bg-slate-700 px-4 py-2 text-sm text-white hover:bg-slate-600">Cerrar sesión</button>
+          </div>
+
+          <div id="chat-window" class="h-[60vh] overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-inner">
+            <div id="chat-content" class="space-y-4"></div>
+            <div id="typing-indicator" class="hidden mt-3 text-slate-400">Escribiendo...</div>
+          </div>
+
+          <form id="message-form" class="mt-4 flex gap-3">
+            <input id="message-input" type="text" placeholder="Escribe tu pregunta..." class="flex-1 rounded-3xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan-400" />
+            <button type="submit" class="rounded-3xl bg-cyan-500 px-6 py-3 text-slate-950 font-semibold hover:bg-cyan-400">Enviar</button>
+          </form>
+        </div>
+
+        <div class="glass rounded-3xl p-6 shadow-2xl w-full md:w-2/5">
+          <div class="mb-4">
+            <h3 class="text-xl font-semibold text-white">Documentos</h3>
+            <p class="text-slate-400">Sube archivos PDF o TXT y elimina los que ya no necesites.</p>
+          </div>
+
+          <form id="upload-form" class="space-y-3">
+            <label class="block text-sm text-slate-300">Selecciona archivos</label>
+            <input id="file-input" type="file" multiple accept=".pdf,.txt" class="w-full text-slate-100" />
+            <button type="submit" class="w-full rounded-3xl bg-slate-700 px-4 py-3 text-white hover:bg-slate-600">Cargar documentos</button>
+          </form>
+
+          <div class="mt-6">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-lg font-semibold text-white">Archivos cargados</h4>
+              <button id="clear-docs" class="text-sm text-cyan-300 hover:text-cyan-100">Eliminar todos</button>
+            </div>
+            <div id="documents-list" class="space-y-3"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let currentSessionId = null;
+
+    const loginScreen = document.getElementById('login-screen');
+    const appScreen = document.getElementById('app-screen');
+    const chatContent = document.getElementById('chat-content');
+    const typingIndicator = document.getElementById('typing-indicator');
+    const messageInput = document.getElementById('message-input');
+    const documentsList = document.getElementById('documents-list');
+
+    async function checkSession() {
+      try {
+        const response = await fetch('/session');
+        if (!response.ok) throw new Error('No autenticado');
+        const data = await response.json();
+        currentSessionId = data.session_id;
+        localStorage.setItem('session_id', currentSessionId);
+        showApp();
+        await loadDocuments();
+      } catch (_) {
+        showLogin();
+      }
+    }
+
+    function showLogin() {
+      loginScreen.classList.remove('hidden');
+      appScreen.classList.add('hidden');
+    }
+
+    function showApp() {
+      loginScreen.classList.add('hidden');
+      appScreen.classList.remove('hidden');
+    }
+
+    async function parseResponse(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(text || 'Respuesta inválida del servidor');
+      }
+    }
+
+    document.getElementById('login-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          credentials: 'same-origin'
+        });
+        const result = await parseResponse(response);
+        if (!response.ok) throw new Error(result.detail || result.message || response.statusText);
+        currentSessionId = result.session_id;
+        localStorage.setItem('session_id', currentSessionId);
+        showApp();
+        await loadDocuments();
+      } catch (error) {
+        alert(error.message || 'Error de autenticación');
+      }
+    });
+
+    document.getElementById('logout-button').addEventListener('click', async () => {
+      await fetch('/logout', { method: 'POST', credentials: 'same-origin' });
+      currentSessionId = null;
+      localStorage.removeItem('session_id');
+      chatContent.innerHTML = '';
+      documentsList.innerHTML = '';
+      showLogin();
+    });
+
+    document.getElementById('upload-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = document.getElementById('file-input');
+      if (!input.files.length) return alert('Selecciona al menos un archivo.');
+
+      const formData = new FormData();
+      for (const file of input.files) {
+        formData.append('files', file);
+      }
+      formData.append('session_id', currentSessionId || localStorage.getItem('session_id'));
+
+      try {
+        const response = await fetch('/upload', { method: 'POST', body: formData, credentials: 'same-origin' });
+        const result = await parseResponse(response);
+        if (!response.ok) throw new Error(result.detail || result.message || response.statusText);
+        input.value = '';
+        await loadDocuments();
+        alert('Documentos cargados correctamente');
+      } catch (error) {
+        alert(error.message || 'Error al subir documentos');
+      }
+    });
+
+    document.getElementById('clear-docs').addEventListener('click', async () => {
+      if (!confirm('¿Eliminar todos los documentos?')) return;
+      try {
+        const response = await fetch(`/documents?session_id=${encodeURIComponent(currentSessionId)}`, { method: 'DELETE', credentials: 'same-origin' });
+        const result = await parseResponse(response);
+        if (!response.ok) throw new Error(result.detail || result.message || response.statusText);
+        documentsList.innerHTML = '';
+      } catch (error) {
+        alert(error.message || 'Error al eliminar documentos');
+      }
+    });
+
+    document.getElementById('message-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await sendMessage();
+    });
+
+    async function loadDocuments() {
+      const sessionId = currentSessionId || localStorage.getItem('session_id');
+      if (!sessionId) return;
+      try {
+        const response = await fetch(`/documents?session_id=${encodeURIComponent(sessionId)}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'No se pudieron cargar documentos');
+        documentsList.innerHTML = '';
+        if (result.documents.length === 0) {
+          documentsList.innerHTML = '<p class="text-slate-400">Aún no has cargado documentos.</p>';
+          return;
+        }
+        for (const doc of result.documents) {
+          const item = document.createElement('div');
+          item.className = 'glass rounded-3xl border border-slate-700 p-4 flex items-center justify-between';
+          item.innerHTML = `
+            <div>
+              <p class="font-semibold text-white">${doc.name}</p>
+              <p class="text-slate-400 text-sm">Subido: ${new Date(doc.uploaded_at).toLocaleString()}</p>
+            </div>
+            <button class="ml-4 rounded-full bg-rose-500 px-4 py-2 text-sm text-white hover:bg-rose-400" data-doc-id="${doc.id}">Eliminar</button>
+          `;
+          item.querySelector('button').addEventListener('click', () => deleteDocument(doc.id));
+          documentsList.appendChild(item);
+        }
+      } catch (error) {
+        documentsList.innerHTML = `<p class="text-rose-300">${error.message}</p>`;
+      }
+    }
+
+    async function deleteDocument(docId) {
+      const sessionId = currentSessionId || localStorage.getItem('session_id');
+      try {
+        const response = await fetch(`/documents?session_id=${encodeURIComponent(sessionId)}&doc_id=${encodeURIComponent(docId)}`, { method: 'DELETE' });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || result.message);
+        await loadDocuments();
+      } catch (error) {
+        alert(error.message || 'No se pudo eliminar el documento');
+      }
+    }
+
+    function appendChatBubble(text, role) {
+      const bubble = document.createElement('div');
+      bubble.className = `max-w-[85%] p-4 rounded-3xl shadow-xl ${role === 'user' ? 'ml-auto bg-cyan-500 text-slate-950' : 'mr-auto bg-slate-800 text-slate-200'}`;
+      bubble.innerText = text;
+      chatContent.appendChild(bubble);
+      chatContent.scrollTop = chatContent.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const text = messageInput.value.trim();
+      if (!text) return;
+      appendChatBubble(text, 'user');
+      messageInput.value = '';
+      typingIndicator.classList.remove('hidden');
+
+      try {
+        const response = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, session_id: currentSessionId || localStorage.getItem('session_id') }),
+          credentials: 'same-origin'
+        });
+        const result = await parseResponse(response);
+        if (!response.ok) throw new Error(result.detail || 'Error al comunicarse con el servidor');
+        appendChatBubble(result.answer, 'assistant');
+      } catch (error) {
+        appendChatBubble('Error: ' + error.message, 'assistant');
+      } finally {
+        typingIndicator.classList.add('hidden');
+      }
+    }
+
+    checkSession();
+  </script>
+</body>
+</html>
